@@ -1,0 +1,8 @@
+# locais: pessoas, repos e histórico de cada usuário
+config.json
+state.json
+.venv/
+__pycache__/
+.claude/
+docs/
+*.tmp

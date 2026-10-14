@@ -1,0 +1,25 @@
+{
+  "repos": [
+    "octocat/hello-world"
+  ],
+  "users": [
+    "octocat"
+  ],
+  "interval": 180,
+  "snooze": 2400,
+  "model": "claude-opus-5-5",
+  "effort": "high",
+  "bots": [
+    "bot",
+    "copilot",
+    "claude",
+    "vela-",
+    "coderabbit",
+    "codex",
+    "gemini",
+    "sonar",
+    "github-actions"
+  ],
+  "prompt": "Revise o pull request {url}",
+  "linked_prompt": "Revise também, considerando o conjunto, os PRs relacionados: {linked}"
+}
