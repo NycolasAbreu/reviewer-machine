@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Observa PRs do GitHub e abre o claude para revisá-los. Repos, pessoas e prompts vêm do config.json."""
+"""Watches GitHub PRs and opens claude to review them. Repos, people and prompts come from config.json."""
 import json
 import os
 import re
@@ -19,8 +19,8 @@ BOT_MARKERS = ["bot", "copilot", "claude", "vela-", "coderabbit", "codex", "gemi
 REPO_NAME = re.compile(r"[\w.-]+/[\w.-]+")
 DEFAULT_CONFIG = {"repos": [], "users": [], "interval": 180, "snooze": 2400,
                   "model": "claude-opus-5-5", "effort": "high", "bots": BOT_MARKERS,
-                  "prompt": "Revise o pull request {url}",
-                  "linked_prompt": "Revise também, considerando o conjunto, os PRs relacionados: {linked}"}
+                  "prompt": "Review the pull request {url}",
+                  "linked_prompt": "Also review these related PRs, considering them together: {linked}"}
 JSON_FIELDS = ("number,title,author,isDraft,url,body,headRefOid,reviews,reviewRequests,"
                "createdAt,statusCheckRollup,mergeable")
 PR_URL = re.compile(r"https://github\.com/[\w.-]+/[\w.-]+/pull/\d+")
@@ -36,7 +36,7 @@ def load_json(path, default):
     try:
         return json.loads(path.read_text())
     except json.JSONDecodeError as e:
-        raise FileError(f"{path.name} corrompido ({e}); corrija ou apague o arquivo")
+        raise FileError(f"{path.name} is corrupt ({e}); fix or delete the file")
 
 
 def save_json(path, data):
@@ -71,7 +71,7 @@ def linked_prs(body, self_url):
 
 
 def parse_selection(text, n):
-    """'1,3' -> [0, 2]; vazio -> []; inválido ou fora do intervalo -> None."""
+    """'1,3' -> [0, 2]; empty -> []; invalid or out of range -> None."""
     text = text.strip()
     if not text:
         return []
@@ -90,7 +90,7 @@ def review_prompt(url, extra, config):
 
 
 def review_cmd(pr, extra, config, claude, cwd):
-    """Abre o review numa janela própria do gnome-terminal, para rodar vários em paralelo."""
+    """Opens the review in its own gnome-terminal window, so several can run in parallel."""
     return ["gnome-terminal", "--title", f"PR #{pr['number']}", f"--working-directory={cwd}", "--",
             claude, "--model", config["model"], "--effort", config["effort"],
             review_prompt(pr["url"], extra, config)]
@@ -101,7 +101,7 @@ def repo_of(pr):
 
 
 def pr_key(pr):
-    """Chave do PR no state.json; o número sozinho colide entre repos."""
+    """PR key in state.json; the number alone collides across repos."""
     return f"{repo_of(pr)}#{pr['number']}"
 
 
@@ -110,23 +110,23 @@ def _login(obj):
 
 
 def is_bot(login, markers):
-    # ponytail: heurística por nome, a API do gh não expõe is_bot em reviews; ajuste "bots" no config.json
+    # ponytail: name-based heuristic, the gh API does not expose is_bot on reviews; tune "bots" in config.json
     return any(m.lower() in login.lower() for m in markers)
 
 
 def reviewers_summary(pr, bots=BOT_MARKERS):
-    """Resumo humano de revisão do PR: quantos já revisaram e quantos pedidos seguem pendentes."""
+    """Human review summary of a PR: how many already reviewed and how many requests are still pending."""
     author = _login(pr.get("author"))
     done = {_login(rv.get("author")) for rv in pr["reviews"] if rv.get("state") != "PENDING"}
     done = {u for u in done if u and u != author and not is_bot(u, bots)}
     pending = {_login(q) for q in pr["reviewRequests"]} - done - {""}
     pending = {u for u in pending if not is_bot(u, bots)}
-    parts = ([f"{len(done)} revisaram"] if done else []) + ([f"{len(pending)} pendente(s)"] if pending else [])
-    return ", ".join(parts) or "sem revisor"
+    parts = ([f"{len(done)} reviewed"] if done else []) + ([f"{len(pending)} pending"] if pending else [])
+    return ", ".join(parts) or "no reviewer"
 
 
 def ci_summary(pr):
-    """Estado do CI e de conflito, ex.: 'CI falhou · conflito'."""
+    """CI and conflict status, e.g. 'CI failed · conflict'."""
     fail = pending = False
     checks = pr.get("statusCheckRollup") or []
     for c in checks:
@@ -138,8 +138,8 @@ def ci_summary(pr):
             good = done and not bad
         fail |= bad
         pending |= not (bad or good)
-    ci = "CI falhou" if fail else "CI rodando" if pending else "CI ok" if checks else "sem CI"
-    return " · ".join([ci, "conflito"] if pr.get("mergeable") == "CONFLICTING" else [ci])
+    ci = "CI failed" if fail else "CI running" if pending else "CI ok" if checks else "no CI"
+    return " · ".join([ci, "conflict"] if pr.get("mergeable") == "CONFLICTING" else [ci])
 
 
 def age(created_at, now):
@@ -153,7 +153,7 @@ def age(created_at, now):
 
 
 def candidates(prs, me, config, state, now):
-    """PRs que merecem aviso, como [(pr, motivo)]. Regras na spec, seção 'Regras de candidato'."""
+    """PRs worth flagging, as [(pr, reason)]."""
     users = {u.lower() for u in config["users"]}
     me = me.lower()
     out = []
@@ -170,19 +170,19 @@ def candidates(prs, me, config, state, now):
             continue
         entry = state.get(pr_key(pr))
         if entry is None:
-            why = "pedido a você" if requested else "novos commits" if mine else "novo"
+            why = "review requested" if requested else "new commits" if mine else "new"
             out.append((pr, why))
         elif entry["decision"] == "snoozed" and now >= entry["until"]:
-            out.append((pr, "lembrete"))
+            out.append((pr, "reminder"))
         elif entry["decision"] == "reviewed" and entry["sha"] != sha:
-            out.append((pr, "novos commits"))
+            out.append((pr, "new commits"))
     return out
 
 
 def baseline(prs, me, config, now):
-    """Primeira execução: o que já está aberto vira 'dismissed', exceto o pedido diretamente a mim."""
+    """First run: whatever is already open becomes 'dismissed', except reviews requested directly from me."""
     return {pr_key(pr): {"sha": pr["headRefOid"], "decision": "dismissed"}
-            for pr, why in candidates(prs, me, config, {}, now) if why != "pedido a você"}
+            for pr, why in candidates(prs, me, config, {}, now) if why != "review requested"}
 
 
 def gh(*args):
@@ -197,7 +197,7 @@ def fetch_prs(repos):
     def one(repo):
         return json.loads(gh("pr", "list", "-R", repo, "--state", "open", "--limit", "100",
                              "--json", JSON_FIELDS))
-    with ThreadPoolExecutor(max(1, len(repos))) as pool:  # cada gh leva alguns segundos; em paralelo
+    with ThreadPoolExecutor(max(1, len(repos))) as pool:  # each gh call takes a few seconds; run them in parallel
         return [pr for prs in pool.map(one, repos) for pr in prs]
 
 
@@ -208,9 +208,9 @@ def notify(msg):
 
 
 def read_line(prompt, timeout=None):
-    """Lê uma linha do stdin; None se passar `timeout` segundos sem Enter.
+    """Reads a line from stdin; None if `timeout` seconds pass without Enter.
 
-    Lê byte a byte direto do fd: com o buffer do sys.stdin, o select não veria linhas já lidas.
+    Reads byte by byte straight from the fd: with sys.stdin buffering, select would not see lines already read.
     """
     print(prompt, end="", flush=True)
     fd = sys.stdin.fileno()
@@ -229,7 +229,7 @@ def read_line(prompt, timeout=None):
 
 
 def ask(question, valid, timeout):
-    """Resposta válida, ou None se ninguém responder em `timeout` segundos."""
+    """A valid answer, or None if nobody answers within `timeout` seconds."""
     while True:
         answer = read_line(question, timeout)
         if answer is None or answer.strip().lower() in valid:
@@ -239,39 +239,39 @@ def ask(question, valid, timeout):
 def pick_linked(urls):
     if not urls:
         return []
-    print("PRs linkados:")
+    print("Linked PRs:")
     for i, u in enumerate(urls, 1):
         print(f"  {i}. {u}")
     while True:
-        idx = parse_selection(read_line("Incluir quais? (ex.: 1,2; Enter = nenhum): "), len(urls))
+        idx = parse_selection(read_line("Include which? (e.g. 1,2; Enter = none): "), len(urls))
         if idx is not None:
             return [urls[i] for i in idx]
-        print("Seleção inválida.")
+        print("Invalid selection.")
 
 
 def handle(pr, why, state, config):
     key, sha = pr_key(pr), pr["headRefOid"]
     print(f"\n#{pr['number']} {pr['title']} ({(pr.get('author') or {}).get('login', '?')}) [{why}]\n{pr['url']}")
-    answer = ask("Revisar? [s]im / [d]epois / [n]ão: ", ("s", "d", "n"), config["interval"])
+    answer = ask("Review? [y]es / [l]ater / [n]o: ", ("y", "l", "n"), config["interval"])
     if answer is None:
-        print("Sem resposta.")
-        answer = "d"
-    if answer == "s":
+        print("No answer.")
+        answer = "l"
+    if answer == "y":
         claude = shutil.which("claude")
         missing = [name for name, path in (("claude", claude), ("gnome-terminal", shutil.which("gnome-terminal")))
                    if not path]
         if missing:
-            print(f"{', '.join(missing)} não encontrado no PATH; o PR segue pendente.")
+            print(f"{', '.join(missing)} not found on PATH; the PR stays pending.")
             return
         extra = pick_linked(linked_prs(pr["body"], pr["url"]))
         if subprocess.run(review_cmd(pr, extra, config, claude, os.getcwd())).returncode != 0:
-            print("Não consegui abrir o gnome-terminal; o PR segue pendente.")
+            print("Could not open gnome-terminal; the PR stays pending.")
             return
-        print(f"Review do #{pr['number']} aberto em outra janela.")
+        print(f"Review of #{pr['number']} opened in another window.")
         state[key] = {"sha": sha, "decision": "reviewed"}
-    elif answer == "d":
+    elif answer == "l":
         state[key] = {"sha": sha, "decision": "snoozed", "until": time.time() + config["snooze"]}
-        print(f"Pergunto de novo em {config['snooze'] // 60} min.")
+        print(f"Asking again in {config['snooze'] // 60} min.")
     else:
         state[key] = {"sha": sha, "decision": "dismissed"}
     save_json(STATE, state)
@@ -293,19 +293,19 @@ def main(argv):
             fn = add_user if cmd == "add" else remove_user
             cfg["users"] = fn(cfg["users"], login)
             save_json(CONFIG, cfg)
-            print("Observando:", ", ".join(cfg["users"]) or "(ninguém)")
+            print("Watching:", ", ".join(cfg["users"]) or "(nobody)")
         elif cmd in ("add-repo", "remove-repo") and len(args) == 1:
             if not REPO_NAME.fullmatch(args[0]):
-                sys.exit("repo no formato dono/nome, ex.: octocat/hello-world")
+                sys.exit("repo must be in owner/name format, e.g. octocat/hello-world")
             cfg = load_config()
-            fn = add_user if cmd == "add-repo" else remove_user  # mesma lógica: lista de strings, sem repetir
+            fn = add_user if cmd == "add-repo" else remove_user  # same logic: list of strings, no duplicates
             cfg["repos"] = fn(cfg["repos"], args[0])
             save_json(CONFIG, cfg)
-            print("Repositórios:", ", ".join(cfg["repos"]) or "(nenhum)")
+            print("Repositories:", ", ".join(cfg["repos"]) or "(none)")
         elif cmd == "list" and not args:
-            print("\n".join(load_config()["users"]) or "(nenhum usuário observado)")
+            print("\n".join(load_config()["users"]) or "(no users watched)")
         else:
-            sys.exit("uso: reviewer.py [ui | watch | add <login> | remove <login> | add-repo <dono/repo> | remove-repo <dono/repo> | list]")
+            sys.exit("usage: reviewer.py [ui | watch | add <login> | remove <login> | add-repo <owner/repo> | remove-repo <owner/repo> | list]")
     except FileError as e:
         sys.exit(str(e))
     except (KeyboardInterrupt, EOFError):

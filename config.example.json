@@ -20,6 +20,6 @@
     "sonar",
     "github-actions"
   ],
-  "prompt": "Revise o pull request {url}",
-  "linked_prompt": "Revise também, considerando o conjunto, os PRs relacionados: {linked}"
+  "prompt": "Review the pull request {url}",
+  "linked_prompt": "Also review these related PRs, considering them together: {linked}"
 }

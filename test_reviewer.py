@@ -28,10 +28,10 @@ def test_add_remove_user():
 
 
 def test_linked_prs():
-    body = ("Relacionado: https://github.com/acme/lib-a/pull/187\n"
-            "e de novo https://github.com/acme/lib-a/pull/187/files\n"
+    body = ("Related: https://github.com/acme/lib-a/pull/187\n"
+            "and again https://github.com/acme/lib-a/pull/187/files\n"
             "self https://github.com/o/r/pull/1\n"
-            "outro https://github.com/acme/lib-b/pull/176")
+            "other https://github.com/acme/lib-b/pull/176")
     assert r.linked_prs(body, "https://github.com/o/r/pull/1") == [
         "https://github.com/acme/lib-a/pull/187",
         "https://github.com/acme/lib-b/pull/176"]
@@ -47,15 +47,15 @@ def test_reviewers_summary_ignores_bots_author_and_teams():
                       {"author": {"login": "copilot-pull-request-reviewer"}, "state": "COMMENTED"},
                       {"author": {"login": "vela-security-reviewer"}, "state": "COMMENTED"}],
           "reviewRequests": [{"login": "carol"}, {"name": "time", "slug": "o/time"}, {"login": "bob"}]}
-    assert r.reviewers_summary(pr) == "1 revisaram, 1 pendente(s)"
-    assert r.reviewers_summary({**pr, "reviews": [], "reviewRequests": []}) == "sem revisor"
+    assert r.reviewers_summary(pr) == "1 reviewed, 1 pending"
+    assert r.reviewers_summary({**pr, "reviews": [], "reviewRequests": []}) == "no reviewer"
 
 
 def test_reviewers_summary_uses_configured_bots():
     pr = {"author": {"login": "alice"}, "reviews": [{"author": {"login": "bob"}, "state": "APPROVED"}],
           "reviewRequests": []}
-    assert r.reviewers_summary(pr, ["bo"]) == "sem revisor"
-    assert r.reviewers_summary(pr, []) == "1 revisaram"
+    assert r.reviewers_summary(pr, ["bo"]) == "no reviewer"
+    assert r.reviewers_summary(pr, []) == "1 reviewed"
 
 
 def test_ci_summary():
@@ -63,13 +63,13 @@ def test_ci_summary():
         return {"__typename": "CheckRun", "status": status, "conclusion": conclusion}
 
     ctx = lambda state: {"__typename": "StatusContext", "state": state}
-    assert r.ci_summary({"statusCheckRollup": []}) == "sem CI"
+    assert r.ci_summary({"statusCheckRollup": []}) == "no CI"
     assert r.ci_summary({"statusCheckRollup": [check("COMPLETED", "SUCCESS"), check("COMPLETED", "SKIPPED"),
                                                ctx("SUCCESS")]}) == "CI ok"
-    assert r.ci_summary({"statusCheckRollup": [check("COMPLETED", "SUCCESS"), check("IN_PROGRESS", "")]}) == "CI rodando"
+    assert r.ci_summary({"statusCheckRollup": [check("COMPLETED", "SUCCESS"), check("IN_PROGRESS", "")]}) == "CI running"
     assert r.ci_summary({"statusCheckRollup": [check("IN_PROGRESS", ""), ctx("ERROR")],
-                         "mergeable": "CONFLICTING"}) == "CI falhou · conflito"
-    assert r.ci_summary({"statusCheckRollup": None, "mergeable": "MERGEABLE"}) == "sem CI"
+                         "mergeable": "CONFLICTING"}) == "CI failed · conflict"
+    assert r.ci_summary({"statusCheckRollup": None, "mergeable": "MERGEABLE"}) == "no CI"
 
 
 def test_age():
@@ -87,7 +87,7 @@ def test_pr_key_is_per_repo():
     other = {**pr(7), "url": "https://github.com/o/other/pull/7"}
     assert r.pr_key(other) == "o/other#7"
     done = {"o/r#7": {"sha": "s1", "decision": "dismissed"}}
-    assert cand([pr(7), other], done) == [(7, "novo")]  # o do outro repo segue pendente
+    assert cand([pr(7), other], done) == [(7, "new")]  # the one in the other repo stays pending
 
 
 def test_parse_selection():
@@ -124,7 +124,7 @@ def test_json_roundtrip_and_corrupt():
         f.write_text("{nope")
         try:
             r.load_json(f, {})
-            assert False, "devia levantar FileError"
+            assert False, "should raise FileError"
         except r.FileError as e:
             assert "x.json" in str(e)
 
@@ -151,7 +151,7 @@ def test_ask_retry_timeout_and_eof():
         os.close(wfd)
         try:
             r.ask("? ", ("s", "d", "n"), 1)
-            assert False, "devia levantar EOFError"
+            assert False, "should raise EOFError"
         except EOFError:
             pass
     finally:
@@ -164,24 +164,24 @@ def cand(prs, state=None, cfg=CFG, now=1000):
 
 
 def test_candidates_basic_filters():
-    assert cand([pr(1)]) == [(1, "novo")]
-    assert cand([pr(1, author="ALICE")]) == [(1, "novo")]
+    assert cand([pr(1)]) == [(1, "new")]
+    assert cand([pr(1, author="ALICE")]) == [(1, "new")]
     assert cand([pr(1, author="bob")]) == []
     assert cand([pr(1, draft=True)]) == []
 
 
 def test_candidates_my_review():
     assert cand([pr(1, reviews=[rev("s1")])]) == []
-    assert cand([pr(1, reviews=[rev("s1", login="other")])]) == [(1, "novo")]
-    assert cand([pr(1, reviews=[rev("s1", state="PENDING")])]) == [(1, "novo")]
-    assert cand([pr(1, reviews=[rev("s1", state="DISMISSED")])]) == [(1, "novo")]
-    assert cand([pr(1, sha="s2", reviews=[rev("s1")])]) == [(1, "novos commits")]
+    assert cand([pr(1, reviews=[rev("s1", login="other")])]) == [(1, "new")]
+    assert cand([pr(1, reviews=[rev("s1", state="PENDING")])]) == [(1, "new")]
+    assert cand([pr(1, reviews=[rev("s1", state="DISMISSED")])]) == [(1, "new")]
+    assert cand([pr(1, sha="s2", reviews=[rev("s1")])]) == [(1, "new commits")]
 
 
 def test_candidates_review_requested():
     direct = [{"__typename": "User", "login": "me"}]
     team = [{"__typename": "Team", "name": "devs"}]
-    assert cand([pr(1, author="bob", requests=direct)]) == [(1, "pedido a você")]
+    assert cand([pr(1, author="bob", requests=direct)]) == [(1, "review requested")]
     assert cand([pr(1, author="bob", requests=team)]) == []
     assert cand([pr(1, author="bob", draft=True, requests=direct)]) == []
 
@@ -189,11 +189,11 @@ def test_candidates_review_requested():
 def test_candidates_state():
     due = {"o/r#1": {"sha": "s1", "decision": "snoozed", "until": 500}}
     wait = {"o/r#1": {"sha": "s1", "decision": "snoozed", "until": 2000}}
-    assert cand([pr(1)], due) == [(1, "lembrete")]
+    assert cand([pr(1)], due) == [(1, "reminder")]
     assert cand([pr(1)], wait) == []
     done = {"o/r#1": {"sha": "s1", "decision": "reviewed"}}
     assert cand([pr(1)], done) == []
-    assert cand([pr(1, sha="s2")], done) == [(1, "novos commits")]
+    assert cand([pr(1, sha="s2")], done) == [(1, "new commits")]
     dismissed = {"o/r#1": {"sha": "s1", "decision": "dismissed"}}
     assert cand([pr(1, sha="s2")], dismissed) == []
 
@@ -209,7 +209,7 @@ def test_baseline():
     prs = [pr(1), pr(2, author="bob"), pr(3, author="bob", requests=direct), pr(4, draft=True)]
     state = r.baseline(prs, "Me", CFG, 1000)
     assert state == {"o/r#1": {"sha": "s1", "decision": "dismissed"}}
-    assert cand(prs, state) == [(3, "pedido a você")]
+    assert cand(prs, state) == [(3, "review requested")]
 
 
 if __name__ == "__main__":

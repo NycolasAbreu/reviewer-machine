@@ -1,4 +1,4 @@
-# locais: pessoas, repos e histórico de cada usuário
+# local: people, repos and decision history of each user
 config.json
 state.json
 .venv/

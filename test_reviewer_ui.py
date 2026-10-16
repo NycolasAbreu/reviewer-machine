@@ -108,9 +108,9 @@ def run_browser_test(tmp_path, act):
 
 def test_right_click_on_row_opens_menu_and_browser_option_opens_pr(tmp_path):
     async def act(app, pilot):
-        await pilot.click(DataTable, offset=(5, 2), button=3)  # linha 2 (y=0 é o cabeçalho)
+        await pilot.click(DataTable, offset=(5, 2), button=3)  # row 2 (y=0 is the header)
         assert isinstance(app.screen, PRMenuScreen)
-        await pilot.click("#menu", offset=(2, 2))  # 2º item: Abrir no navegador
+        await pilot.click("#menu", offset=(2, 2))  # 2nd item: Open in browser
 
     run_browser_test(tmp_path, act).assert_called_once_with("https://github.com/o/r/pull/2")
 
@@ -167,7 +167,7 @@ def test_new_pr_on_refresh_notifies_once(tmp_path):
         prs.append(pr(2))
         app.action_refresh()
         await app.workers.wait_for_complete()
-        app.action_refresh()  # sem PR novo: não notifica de novo
+        app.action_refresh()  # no new PR: does not notify again
         await app.workers.wait_for_complete()
 
     with patch.object(ui.r, "notify") as notify:
@@ -178,9 +178,9 @@ def test_new_pr_on_refresh_notifies_once(tmp_path):
 
 def test_menu_letter_shortcut_and_refresh_while_menu_open(tmp_path):
     async def act(app, pilot):
-        await pilot.click(DataTable, offset=(5, 1), button=3)  # linha 1
+        await pilot.click(DataTable, offset=(5, 1), button=3)  # row 1
         assert isinstance(app.screen, PRMenuScreen)
-        app.action_refresh()  # a lista é recarregada com o menu aberto
+        app.action_refresh()  # the list is reloaded while the menu is open
         await app.workers.wait_for_complete()
         await pilot.press("o")
 
@@ -205,14 +205,14 @@ def test_new_repo_is_baselined_and_same_number_does_not_collide(tmp_path):
     state_path.write_text(json.dumps({"_repos": ["o/r"]}))
     old_config, old_state = r.CONFIG, r.STATE
     r.CONFIG, r.STATE = config_path, state_path
-    prs = [pr(1), pr(1, repo="o/new"), pr(2, repo="o/new")]  # mesmo número 1 nos dois repos
+    prs = [pr(1), pr(1, repo="o/new"), pr(2, repo="o/new")]  # same number 1 in both repos
 
     async def exercise():
         app = ReviewerApp(fetch_prs=lambda _repos: prs, fetch_me=lambda: "me")
         with patch.object(ui.r, "notify") as notify:
             async with app.run_test() as pilot:
                 await app.workers.wait_for_complete()
-                assert list(app.pr_by_key) == ["o/r#1"]  # PRs já abertos em o/new viram dismissed
+                assert list(app.pr_by_key) == ["o/r#1"]  # PRs already open in o/new become dismissed
                 await pilot.press("d")
         notify.assert_not_called()
         state = r.load_json(state_path, {})
